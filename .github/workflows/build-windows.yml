@@ -13,6 +13,7 @@ jobs:
         with:
           submodules: recursive
 
+      # Патчим дефолты в hbb_common
       - name: Patch defaults in hbb_common/config.rs
         shell: pwsh
         run: |
@@ -36,16 +37,20 @@ jobs:
           channel: stable
 
       - name: Enable Windows desktop
+        working-directory: flutter
         run: flutter config --enable-windows-desktop
 
+      - name: Flutter pub get
+        working-directory: flutter
+        run: flutter pub get
+
       - name: Build Flutter Windows (release)
-        shell: pwsh
-        run: |
-          flutter doctor -v
-          flutter build windows --release
+        working-directory: flutter
+        run: flutter build windows --release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-windows-x64
-          path: build/windows/x64/runner/Release/*.exe
+          # exe лежит внутри папки flutter/
+          path: flutter/build/windows/x64/runner/Release/*.exe
