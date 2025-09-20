@@ -1,0 +1,51 @@
+name: Build Windows (with preset server)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Patch defaults in hbb_common/config.rs
+        shell: pwsh
+        run: |
+          $cfg = "libs/hbb_common/src/config.rs"
+          (Get-Content $cfg) `
+            -replace 'RENDEZVOUS_SERVERS\s*:\s*&\[\&str\]\s*=\s*&\[[^\]]*\]', 'RENDEZVOUS_SERVERS: &[&str] = &["192.168.1.8"]' `
+            -replace 'RS_PUB_KEY\s*:\s*&str\s*=\s*"[^"]*"', 'RS_PUB_KEY: &str = "WUoG9HAQTt2rxAIAneMb0DcAcKPf1pZHSlsRYsLAuaU="' `
+            -replace 'RENDEZVOUS_PORT\s*:\s*i32\s*=\s*\d+', 'RENDEZVOUS_PORT: i32 = 21115' `
+            -replace 'RELAY_PORT\s*:\s*i32\s*=\s*\d+', 'RELAY_PORT: i32 = 21116' `
+            | Set-Content $cfg -Encoding UTF8
+          Select-String -Path $cfg -Pattern 'RENDEZVOUS_SERVERS|RS_PUB_KEY|RENDEZVOUS_PORT|RELAY_PORT'
+
+      - name: Install Rust (stable msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Build Flutter Windows (release)
+        shell: pwsh
+        run: |
+          flutter doctor -v
+          flutter build windows --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-x64
+          path: build/windows/x64/runner/Release/*.exe
