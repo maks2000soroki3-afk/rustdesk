@@ -35,7 +35,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.22.2'   # закрепляем совместимую версию
+          flutter-version: '3.35.4'   # закрепляем совместимую версию
 
       - name: Enable Windows desktop
         working-directory: flutter
