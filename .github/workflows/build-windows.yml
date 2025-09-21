@@ -1,19 +1,67 @@
-name: Build Windows via upstream CI
+# .github/workflows/build-windows.yml
+name: Build Windows (with my preset server)
 
 on:
   workflow_dispatch:
 
 jobs:
-  call-upstream:
-    name: Upstream Flutter build
-    # Вызов их reusable-workflow. Убедись, что файл существует у апстрима:
-    # rustdesk/rustdesk/.github/workflows/flutter-build.yml
-    uses: rustdesk/rustdesk/.github/workflows/flutter-build.yml@master
+  win:
+    runs-on: windows-2022
 
-    # Параметры, которые поддерживает их workflow (оставляем типичные):
-    with:
-      upload-artifact: true    # чтобы exe пришёл артефактом к этому ранe
-      upload-tag: false
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    # Передаём разрешения/секреты текущего репозитория (обычно не требуются, но безопасно)
-    secrets: inherit
+      # ВАЖНО: переключаем субмодуль libs/hbb_common на твой форк,
+      # чтобы взялись твои правки в src/config.rs
+      - name: Point hbb_common submodule to my fork
+        shell: bash
+        run: |
+          set -e
+          git -C libs/hbb_common remote set-url origin https://github.com/maks2000soroki3-afk/hbb_common.git
+          git submodule update --init --recursive --remote libs/hbb_common
+          # берём main твоего форка (при желании зафиксируйся на нужном SHA)
+          git -C libs/hbb_common checkout main
+          git -C libs/hbb_common rev-parse --short HEAD
+
+      # Для наглядности — печать начала config.rs, чтобы в логах было видно твои значения
+      - name: Show hbb_common config snippet
+        shell: bash
+        run: |
+          echo "----- libs/hbb_common/src/config.rs (head) -----"
+          sed -n '1,160p' libs/hbb_common/src/config.rs
+
+      # Устанавливаем Flutter. Эта версия обычно совместима с текущим кодом RustDesk.
+      # Если вдруг словим несовместимость, можно поднять до 3.35.4.
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.27.4'
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Flutter pub get
+        working-directory: flutter
+        run: |
+          flutter --version
+          dart --version
+          flutter pub get
+
+      - name: Flutter clean
+        working-directory: flutter
+        run: flutter clean
+
+      - name: Build Flutter Windows (release)
+        working-directory: flutter
+        run: flutter build windows --release
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-myserver
+          path: flutter/build/windows/x64/runner/Release/*.exe
