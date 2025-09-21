@@ -1,4 +1,4 @@
-name: Build Windows (with preset server)
+name: Build Windows via upstream CI
 
 on:
   workflow_dispatch:
@@ -6,61 +6,14 @@ on:
 jobs:
   call-upstream:
     name: Upstream Flutter build
+    # Вызов их reusable-workflow. Убедись, что файл существует у апстрима:
+    # rustdesk/rustdesk/.github/workflows/flutter-build.yml
     uses: rustdesk/rustdesk/.github/workflows/flutter-build.yml@master
+
+    # Параметры, которые поддерживает их workflow (оставляем типичные):
     with:
-      upload-artifact: true
+      upload-artifact: true    # чтобы exe пришёл артефактом к этому ранe
       upload-tag: false
+
+    # Передаём разрешения/секреты текущего репозитория (обычно не требуются, но безопасно)
     secrets: inherit
-
-    steps:
-      - name: Checkout (with submodules)
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # Патчим дефолты в hbb_common
-      - name: Patch defaults in hbb_common/config.rs
-        shell: pwsh
-        run: |
-          $cfg = "libs/hbb_common/src/config.rs"
-          (Get-Content $cfg) `
-            -replace 'RENDEZVOUS_SERVERS\s*:\s*&\[\&str\]\s*=\s*&\[[^\]]*\]', 'RENDEZVOUS_SERVERS: &[&str] = &["192.168.1.8"]' `
-            -replace 'RS_PUB_KEY\s*:\s*&str\s*=\s*"[^"]*"', 'RS_PUB_KEY: &str = "WUoG9HAQTt2rxAIAneMb0DcAcKPf1pZHSlsRYsLAuaU="' `
-            -replace 'RENDEZVOUS_PORT\s*:\s*i32\s*=\s*\d+', 'RENDEZVOUS_PORT: i32 = 21115' `
-            -replace 'RELAY_PORT\s*:\s*i32\s*=\s*\d+', 'RELAY_PORT: i32 = 21116' `
-            | Set-Content $cfg -Encoding UTF8
-          Select-String -Path $cfg -Pattern 'RENDEZVOUS_SERVERS|RS_PUB_KEY|RENDEZVOUS_PORT|RELAY_PORT'
-
-      - name: Install Rust (stable msvc)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          flutter-version: '3.35.4'   # закрепляем совместимую версию
-
-      - name: Enable Windows desktop
-        working-directory: flutter
-        run: flutter config --enable-windows-desktop
-
-      - name: Flutter pub get
-        working-directory: flutter
-        run: flutter pub get
-
-      - name: Flutter clean
-        working-directory: flutter
-        run: flutter clean
-
-      - name: Build Flutter Windows (release)
-        working-directory: flutter
-        run: flutter build windows --release
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustdesk-windows-x64
-          # exe лежит внутри папки flutter/
-          path: flutter/build/windows/x64/runner/Release/*.exe
