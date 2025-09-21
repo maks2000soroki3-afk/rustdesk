@@ -1,0 +1,105 @@
+name: Build Windows (Sciter, with my server presets)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win-sciter:
+    runs-on: windows-2022
+
+    env:
+      # Твои значения — поменяй при необходимости:
+      MY_RD_HOST: "192.168.1.8"                 # ХОСТ без порта!
+      MY_RD_ID_PORT: "21115"                    # hbbs
+      MY_RD_RELAY_PORT: "21116"                 # hbbr
+      MY_RD_PUBKEY: "WUoG9HAQTt2rxAIAneMb0DcAcKPf1pZHSlsRYsLAuaU="
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Патчим libs/hbb_common/src/config.rs на наши значения
+      - name: Patch defaults in hbb_common/config.rs
+        shell: pwsh
+        run: |
+          $cfg = "libs/hbb_common/src/config.rs"
+          if (!(Test-Path $cfg)) { throw "Not found: $cfg" }
+
+          (Get-Content $cfg) `
+            -replace 'RENDEZVOUS_SERVERS\s*:\s*&\[\&str\]\s*=\s*&\[[^\]]*\]', "RENDEZVOUS_SERVERS: &[&str] = &[`"$env:MY_RD_HOST`"]" `
+            -replace 'RS_PUB_KEY\s*:\s*&str\s*=\s*"[^"]*"',                 "RS_PUB_KEY: &str = `"$env:MY_RD_PUBKEY`"" `
+            -replace 'RENDEZVOUS_PORT\s*:\s*i32\s*=\s*\d+',                 "RENDEZVOUS_PORT: i32 = $env:MY_RD_ID_PORT" `
+            -replace 'RELAY_PORT\s*:\s*i32\s*=\s*\d+',                      "RELAY_PORT: i32 = $env:MY_RD_RELAY_PORT" `
+            | Set-Content $cfg -Encoding UTF8
+
+          # Выведем подтверждение в лог
+          Select-String -Path $cfg -Pattern 'RENDEZVOUS_SERVERS|RS_PUB_KEY|RENDEZVOUS_PORT|RELAY_PORT' | ForEach-Object { $_.Line }
+
+      # Установим Rust (MSVC)
+      - name: Install Rust (stable msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      # Установим vcpkg и нужные С/С++ зависимости (libvpx, libyuv, opus, aom)
+      - name: Install vcpkg and multimedia libs
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+          & $env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat
+          $VCPKG="$env:USERPROFILE\vcpkg\vcpkg.exe"
+          & $VCPKG integrate install
+          & $VCPKG install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+
+      # Скачиваем sciter.dll (x64) и положим рядом с exe
+      - name: Download Sciter DLL (x64)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path sciter | Out-Null
+          $urls = @(
+            "https://github.com/c-smile/sciter-sdk/raw/master/bin/windows/x64/sciter.dll",
+            "https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin/windows/x64/sciter.dll"
+          )
+          $out = "sciter\sciter.dll"
+          $ok = $false
+          foreach ($u in $urls) {
+            try {
+              Invoke-WebRequest -Uri $u -OutFile $out -UseBasicParsing -TimeoutSec 60
+              if ((Test-Path $out) -and ((Get-Item $out).Length -gt 0)) { $ok = $true; break }
+            } catch { }
+          }
+          if (!$ok) { throw "Failed to download sciter.dll" }
+
+      # Сборка Sciter-версии (без Flutter)
+      - name: Build RustDesk (Sciter)
+        shell: pwsh
+        run: |
+          # иногда vcpkg требует переменные окружения
+          $env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+          # сборка без дефолт-фич, с включенной sciter
+          cargo build --release --no-default-features --features sciter --target x86_64-pc-windows-msvc
+
+      # Скопируем sciter.dll к exe и выложим артефакты
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          $dst = "artifact"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\rustdesk.exe" $dst
+          Copy-Item "sciter\sciter.dll" $dst
+          # на всякий - добавим readme
+          @"
+          This is the Windows Sciter build of RustDesk.
+          Place rustdesk.exe and sciter.dll together.
+          Default server: $env:MY_RD_HOST  (ID:$env:MY_RD_ID_PORT, RELAY:$env:MY_RD_RELAY_PORT)
+          Default key:    $env:MY_RD_PUBKEY
+"@ | Set-Content "$dst\README.txt" -Encoding UTF8
+
+      - name: Upload artifact (exe + sciter.dll)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-sciter
+          path: artifact/**
