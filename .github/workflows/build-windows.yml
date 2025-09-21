@@ -4,8 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  win:
-    runs-on: windows-latest
+  call-upstream:
+    name: Upstream Flutter build
+    uses: rustdesk/rustdesk/.github/workflows/flutter-build.yml@master
+    with:
+      upload-artifact: true
+      upload-tag: false
+    secrets: inherit
 
     steps:
       - name: Checkout (with submodules)
