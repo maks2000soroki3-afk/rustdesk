@@ -1,4 +1,4 @@
-name: Build Windows (Sciter, with my server presets)
+name: Build Windows (Sciter, with my server presets 2)
 
 on:
   workflow_dispatch:
